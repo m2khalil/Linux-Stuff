@@ -1,1 +1,187 @@
 
+on server 1
+#Install ntp server (if not available on the system)
+ sudo yum install -y chrony
+
+#check if chrony service is up and running
+sudo systemctl status chronyd
+#if not started, run following commad
+sudo systemctl start chronyd
+#if want to make this automatic start then
+sudo systemctl enable chronyd
+
+#configure chrongy server
+vi /etc/chrony.conf
+go to lines
+#allow NTP client access from lock network
+and adjust the line
+allow 192.168.52.0/24  (our current network is 192.168.52)
+
+#to allow clients to reach to ntp server, add firewall rule
+[root@CentOS-VM1 iscsi]# sudo firewall-cmd --permanent --zone=public --add-service=ntp
+success
+[root@CentOS-VM1 iscsi]#
+
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-all
+
+[root@CentOS-VM1 iscsi]# sudo firewall-cmd --list-all
+public (active)
+  target: default
+  icmp-block-inversion: no
+  interfaces: ens192
+  sources:
+  services: dhcpv6-client iscsi-target ntp ssh
+  ports:
+  protocols:
+  masquerade: no
+  forward-ports:
+  source-ports:
+  icmp-blocks:
+  rich rules:
+
+[root@CentOS-VM1 iscsi]#
+public (active) in the above output is showing that public zone is allowed.
+
+sudo systemctl restart chronyd
+
+On server 2 
+edit the chrony.conf file
+and comment any poll or servers given already and add your server ip (in our case we will add vm1)
+
+# Use public servers from the pool.ntp.org project.
+# Please consider joining the pool (http://www.pool.ntp.org/join.html).
+#server 0.centos.pool.ntp.org iburst
+#server 1.centos.pool.ntp.org iburst
+#server 2.centos.pool.ntp.org iburst
+#server 3.centos.pool.ntp.org iburst
+
+server 192.168.52.51 iburst
+
+save the file and restart the service
+sudo systemctl restart chronyd
+
+ensure that our client is ready to use ntp service
+sudo timedatectl set-ntp true
+
+check if client is synching with ntp server
+sudo chronyc sources -v
+
+=========================== 
+on server 1
+
+[root@CentOS-VM1 iscsi]# timedatectl set-ntp true
+[root@CentOS-VM1 iscsi]# timedatectl
+      Local time: Sun 2022-10-23 21:45:21 +04
+  Universal time: Sun 2022-10-23 17:45:21 UTC
+        RTC time: Sun 2022-10-23 17:45:22
+       Time zone: Asia/Dubai (+04, +0400)
+     NTP enabled: yes
+NTP synchronized: yes
+ RTC in local TZ: no
+      DST active: n/a
+[root@CentOS-VM1 iscsi]# timedatectl
+      Local time: Sun 2022-10-23 21:45:59 +04
+  Universal time: Sun 2022-10-23 17:45:59 UTC
+        RTC time: Sun 2022-10-23 17:46:00
+       Time zone: Asia/Dubai (+04, +0400)
+     NTP enabled: yes
+NTP synchronized: yes
+ RTC in local TZ: no
+      DST active: n/a
+[root@CentOS-VM1 iscsi]#
+
+in the above output if NTP synchronized is no then we need to check where the ntp service is getting time info
+
+[root@CentOS-VM1 iscsi]# chronyc tracking
+Reference ID    : A29FC87B (time.cloudflare.com)
+Stratum         : 4
+Ref time (UTC)  : Sun Oct 23 17:47:55 2022
+System time     : 0.000467973 seconds slow of NTP time
+Last offset     : -0.000593192 seconds
+RMS offset      : 0.001496904 seconds
+Frequency       : 20.409 ppm slow
+Residual freq   : -0.043 ppm
+Skew            : 2.850 ppm
+Root delay      : 0.144488141 seconds
+Root dispersion : 0.001926751 seconds
+Update interval : 65.0 seconds
+Leap status     : Normal
+[root@CentOS-VM1 iscsi]#
+
+in the above line starting with Reference ID is showing the server ntp using for time.
+
+
+
+ sudo chronyc sources -v
+210 Number of sources = 4
+
+  .-- Source mode  '^' = server, '=' = peer, '#' = local clock.
+ / .- Source state '*' = current synced, '+' = combined , '-' = not combined,
+| /   '?' = unreachable, 'x' = time may be in error, '~' = time too variable.
+||                                                 .- xxxx [ yyyy ] +/- zzzz
+||      Reachability register (octal) -.           |  xxxx = adjusted offset,
+||      Log2(Polling interval) --.      |          |  yyyy = measured offset,
+||                                \     |          |  zzzz = estimated error.
+||                                 |    |           \
+MS Name/IP address         Stratum Poll Reach LastRx Last sample
+===============================================================================
+^* time.cloudflare.com           3   7   377    23  +1395us[+1270us] +/-   75ms
+^+ mirror.tillo.ch               2   7   377    23  -2234us[-2358us] +/-   79ms
+^? time.cloudflare.com           0   6     0     -     +0ns[   +0ns] +/-    0ns
+^+ time.cloudflare.com           3   7   377    91  +1695us[+1578us] +/-   73ms
+[root@CentOS-VM1 iscsi]#
+
+in the output
+
+carret = server
+= is peer
+# = local clock
+============
+* means synchronize
+
+
+[root@CentOS-VM1 iscsi]# sudo chronyc sourcestats
+210 Number of sources = 4
+Name/IP Address            NP  NR  Span  Frequency  Freq Skew  Offset  Std Dev
+==============================================================================
+time.cloudflare.com        21  11   20m     +0.047      2.628  +1994us  1138us
+mirror.tillo.ch            21  11   20m     -4.757     10.362  -4119us  4520us
+time.cloudflare.com         0   0     0     +0.000   2000.000     +0ns  4000ms
+time.cloudflare.com        21  13   21m     -0.076      3.057  +1583us  1644us
+[root@CentOS-VM1 iscsi]#
+
+
+To speed up time sync on bootup with chronyd, drift file is used to store keeping track of the offfsed between realtime and the system clock.
+
+to configure chronyd to sync to multiple server we can use pool keyword in conf file.
+
+Chronyd can provide time services to networks that are not connect ot the internet.
+
+To configure the chrony cliend to synchronized to one specific server, user the "server" keyword.
+
+For a client to user NTP service OS needs to be configure to use NTP using the timedatectl command.
+To configure a syustem to use NTP for its time rouhcer you need to use "timedatectl set-ntp true" command.
+
+
+timedatectl is used to set current time on linux
+
+
+
+
+
+timedatectl set-ntp true
+# timedatectl set-ntp false
+
+
+
+# timedatectl set-time 15:58:30
+Failed to set time: NTP unit is active
+systemctl disable --now chronyd
+
+
+
+
+
+
+
