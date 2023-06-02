@@ -1,0 +1,6 @@
+https://www.suse.com/support/kb/doc/?id=000020611
+extract is here.
+
+du won't count space still occupied by deleted files; df will.  
+
+This is especially common when an application opens a file and then the application (or something else) deletes it.  The file entry will disappear, so du can no longer find it and count it.  However, the file is still under the control of the application which has it open, and the space is not released.  This practice is often referred to as "delete on last close".  Some applications never close certain files until the application is stopped.  Large log files are common culprits, but it could be anything.
